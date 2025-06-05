@@ -617,6 +617,10 @@ $(SCMI_DTBO): $(SCMI_DTSO)
 
 $(SCMI_DTB): $(SCMI_DTBO) $(QEMU_BUILD)/.stamp_qemu linux arm-tf buildroot
 	ln -sf $(ROOT)/out-br/images/rootfs.cpio.gz $(BINARIES_PATH)/
+	# cd $(BINARIES_PATH) && $(QEMU_BIN) \
+	# 	$(QEMU_BASE_ARGS) -machine dumpdtb=qemu_v8.dtb && \
+	# 	dtc -I dtb -O dts -o qemu_v8.dts qemu_v8.dtb && \
+	# 	dtc -@ -I dts -O dtb -o qemu_v8.dtb qemu_v8.dts
 	cd $(BINARIES_PATH) && $(QEMU_BIN) \
 		$(QEMU_BASE_ARGS) -machine dumpdtb=qemu_v8.dtb
 	cd $(BINARIES_PATH) && fdtoverlay -i qemu_v8.dtb -o $(SCMI_DTB) $(SCMI_DTBO)
@@ -625,6 +629,7 @@ endif
 QEMU_RUN_ARGS = $(QEMU_BASE_ARGS) $(QEMU_SCMI_ARGS)
 QEMU_RUN_ARGS += $(QEMU_RUN_ARGS_COMMON)
 QEMU_RUN_ARGS += -s -S -serial tcp:127.0.0.1:$(QEMU_NW_PORT) -serial tcp:127.0.0.1:$(QEMU_SW_PORT) 
+QEMU_RUN_ARGS += -device loader,file=overlay.dtbo,addr=0x40100000
 
 .PHONY: run-only
 run-only:
