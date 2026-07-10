@@ -334,13 +334,15 @@ ifneq (y,$(BR2_PER_PACKAGE_DIRECTORIES))
 br-make-flags := -j1
 endif
 
+HOST_TOOLS_ENV ?=
+
 .PHONY: buildroot
 buildroot: optee-os
 	@mkdir -p ../out-br
 	@rm -f ../out-br/build/optee_*/.stamp_*
 	@rm -f ../out-br/extra.conf
 	@$(call append-br2-vars,../out-br/extra.conf)
-	@(cd .. && $(PYTHON3) build/br-ext/scripts/make_def_config.py \
+	@(cd .. && $(HOST_TOOLS_ENV) $(PYTHON3) build/br-ext/scripts/make_def_config.py \
 		--br buildroot --out out-br --br-ext build/br-ext \
 		--top-dir "$(ROOT)" \
 		--br-defconfig build/br-ext/configs/optee_$(BUILDROOT_ARCH) \
@@ -354,7 +356,7 @@ buildroot: optee-os
 		$(DEFCONFIG_FTPM) \
 		--br-defconfig out-br/extra.conf \
 		--make-cmd $(MAKE))
-	@$(MAKE) $(br-make-flags) -C ../out-br all
+	@$(HOST_TOOLS_ENV) $(MAKE) $(br-make-flags) -C ../out-br all
 
 .PHONY: buildroot-clean
 buildroot-clean:
