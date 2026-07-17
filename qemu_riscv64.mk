@@ -46,6 +46,13 @@ OPENSBI_OUT		?= $(OPENSBI_PATH)/build/platform/generic/firmware
 QEMU_PATH		?= $(ROOT)/qemu
 QEMU_BUILD		?= $(QEMU_PATH)/build
 UBOOT_PATH		?= $(ROOT)/u-boot
+PATCHES_QEMU_RISCV64_PATH ?= $(ROOT)/patches_qemu_riscv64
+OPENSBI_PATCHES_DIR ?= $(PATCHES_QEMU_RISCV64_PATH)/opensbi
+UBOOT_PATCHES_DIR ?= $(PATCHES_QEMU_RISCV64_PATH)/u-boot
+LINUX_PATCHES_DIR ?= $(PATCHES_QEMU_RISCV64_PATH)/linux
+OPENSBI_PATCH_STAMP ?= $(OPENSBI_PATH)/.qemu_riscv64_patches_applied
+UBOOT_PATCH_STAMP ?= $(UBOOT_PATH)/.qemu_riscv64_patches_applied
+LINUX_PATCH_STAMP ?= $(LINUX_PATH)/.qemu_riscv64_patches_applied
 
 LINUX_IMAGE		?= $(LINUX_PATH)/arch/riscv/boot/Image
 LINUX_DTB		?= $(LINUX_PATH)/arch/riscv/boot/dts/qemu/qemu_rv64_virt_domain.dtb
@@ -57,12 +64,39 @@ UBOOT_SPL		?= $(UBOOT_PATH)/spl/u-boot-spl.bin
 SDCARD_IMG		?= $(ROOT)/out-br/images/sdcard.img
 ROOTFS_EXT2		?= $(ROOT)/out-br/images/rootfs.ext2
 
+define apply_optional_patch_series
+	@set -e; \
+	if [ -d "$(2)" ] && ls "$(2)"/*.patch >/dev/null 2>&1; then \
+		echo "Applying optional patches from $(2) to $(1)"; \
+		applied_patch_ids=$$(mktemp); \
+		git -C "$(1)" log -p --no-merges | git patch-id --stable | cut -d' ' -f1 > "$$applied_patch_ids"; \
+		for p in $(sort $(wildcard $(2)/*.patch)); do \
+			patch_id=$$(sed -n '/^diff --git /,$$p' "$$p" | git patch-id --stable | cut -d' ' -f1); \
+			if [ -n "$$patch_id" ] && grep -Fqx "$$patch_id" "$$applied_patch_ids"; then \
+				echo "Skipping already-applied patch $$(basename "$$p")"; \
+			else \
+				echo "Applying patch $$(basename "$$p")"; \
+				if git -C "$(1)" am --3way "$$p"; then \
+					echo "$$patch_id" >> "$$applied_patch_ids"; \
+				else \
+					git -C "$(1)" am --abort || true; \
+					rm -f "$$applied_patch_ids"; \
+					exit 1; \
+				fi; \
+			fi; \
+		done; \
+		rm -f "$$applied_patch_ids"; \
+	else \
+		echo "No optional patches in $(2), skipping"; \
+	fi
+endef
+
 ################################################################################
 # Targets
 ################################################################################
 TARGET_DEPS := opensbi optee-os u-boot linux buildroot qemu
 TARGET_CLEAN := opensbi-clean optee-os-clean u-boot-clean linux-clean \
-	buildroot-clean qemu-clean check-clean
+	buildroot-clean qemu-clean check-clean patch-stamps-clean
 
 all: $(TARGET_DEPS)
 
@@ -76,6 +110,10 @@ $(OUT_PATH):
 
 include toolchain.mk
 
+OPENSBI_PATCH_FILES := $(sort $(wildcard $(OPENSBI_PATCHES_DIR)/*.patch))
+UBOOT_PATCH_FILES := $(sort $(wildcard $(UBOOT_PATCHES_DIR)/*.patch))
+LINUX_PATCH_FILES := $(sort $(wildcard $(LINUX_PATCHES_DIR)/*.patch))
+
 ################################################################################
 # OpenSBI
 ################################################################################
@@ -86,8 +124,15 @@ OPENSBI_COMMON_FLAGS += FW_DYNAMIC=y
 OPENSBI_COMMON_FLAGS += FW_JUMP=y
 OPENSBI_COMMON_FLAGS += APLIC_QEMU_VIRQ_TEST=y
 
+.PHONY: opensbi-patches
+opensbi-patches: $(OPENSBI_PATCH_STAMP)
+
+$(OPENSBI_PATCH_STAMP): $(OPENSBI_PATCH_FILES) $(ROOT)/build/qemu_riscv64.mk
+	$(call apply_optional_patch_series,$(OPENSBI_PATH),$(OPENSBI_PATCHES_DIR))
+	@touch $@
+
 .PHONY: opensbi
-opensbi: | $(BINARIES_PATH)
+opensbi: opensbi-patches | $(BINARIES_PATH)
 	$(MAKE) -C $(OPENSBI_PATH) $(OPENSBI_COMMON_FLAGS)
 	ln -sf $(OPENSBI_FW_DYNAMIC_BIN) $(BINARIES_PATH)/fw_dynamic.bin
 	ln -sf $(OPENSBI_FW_JUMP_BIN) $(BINARIES_PATH)/fw_jump.bin
@@ -105,12 +150,19 @@ UBOOT_COMMON_FLAGS += CROSS_COMPILE=$(CROSS_COMPILE_NS_KERNEL)
 UBOOT_COMMON_FLAGS += OPENSBI=$(OPENSBI_FW_DYNAMIC_BIN)
 UBOOT_COMMON_FLAGS += TEE=$(OPTEE_OS_BIN)
 
-$(UBOOT_PATH)/.config: $(UBOOT_DEFCONFIG_FILES)
+.PHONY: u-boot-patches
+u-boot-patches: $(UBOOT_PATCH_STAMP)
+
+$(UBOOT_PATCH_STAMP): $(UBOOT_PATCH_FILES) $(ROOT)/build/qemu_riscv64.mk
+	$(call apply_optional_patch_series,$(UBOOT_PATH),$(UBOOT_PATCHES_DIR))
+	@touch $@
+
+$(UBOOT_PATH)/.config: u-boot-patches $(UBOOT_DEFCONFIG_FILES)
 	cd $(UBOOT_PATH) && scripts/kconfig/merge_config.sh \
 		$(UBOOT_DEFCONFIG_FILES)
 
 .PHONY: u-boot-defconfig
-u-boot-defconfig: $(UBOOT_PATH)/.config
+u-boot-defconfig: u-boot-patches $(UBOOT_PATH)/.config
 
 .PHONY: u-boot
 u-boot: optee-os opensbi u-boot-defconfig | $(BINARIES_PATH)
@@ -132,7 +184,18 @@ LINUX_DEFCONFIG_COMMON_FILES := \
 LINUX_COMMON_FLAGS += ARCH=riscv
 LINUX_COMMON_TARGETS += Image dtbs
 
-linux-defconfig: $(LINUX_PATH)/.config
+.PHONY: linux-patches
+linux-patches: $(LINUX_PATCH_STAMP)
+
+$(LINUX_PATCH_STAMP): $(LINUX_PATCH_FILES) $(ROOT)/build/qemu_riscv64.mk
+	$(call apply_optional_patch_series,$(LINUX_PATH),$(LINUX_PATCHES_DIR))
+	@touch $@
+
+# Ensure Linux defconfig is generated only after the optional patch
+# series has updated arch/riscv/configs/defconfig.
+$(LINUX_PATH)/.config: $(LINUX_PATCH_STAMP)
+
+linux-defconfig: linux-patches $(LINUX_PATH)/.config
 
 linux: linux-common | $(BINARIES_PATH)
 	ln -sf $(LINUX_IMAGE) $(BINARIES_PATH)/Image
@@ -147,6 +210,10 @@ linux-clean: linux-clean-common
 LINUX_CLEANER_COMMON_FLAGS += ARCH=riscv
 
 linux-cleaner: linux-cleaner-common
+
+.PHONY: patch-stamps-clean
+patch-stamps-clean:
+	rm -f $(OPENSBI_PATCH_STAMP) $(UBOOT_PATCH_STAMP) $(LINUX_PATCH_STAMP)
 
 ################################################################################
 # Root FS
