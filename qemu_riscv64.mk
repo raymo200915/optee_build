@@ -309,6 +309,7 @@ CHECK_DEPS := all
 endif
 
 CHECK_TESTS ?= xtest
+XTEST_CONTINUE_ON_FAIL ?= n
 ifneq ($(TIMEOUT),)
 check-args := --timeout $(TIMEOUT)
 endif
@@ -317,6 +318,9 @@ check-args += --tests $(CHECK_TESTS)
 endif
 ifneq ($(XTEST_ARGS),)
 check-args += --xtest-args "$(XTEST_ARGS)"
+endif
+ifeq ($(XTEST_CONTINUE_ON_FAIL),y)
+check-args += --continue-on-fail
 endif
 
 QEMU_CHECK_ARGS = $(QEMU_BASE_ARGS)
