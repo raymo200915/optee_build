@@ -4,6 +4,8 @@
 # This script currently targets the single-console setup used by qemu_riscv64.
 
 set quiet 0
+set continue_on_fail 0
+set print_test_names 1
 set xtest_args ""
 set tests "xtest"
 

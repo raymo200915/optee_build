@@ -18,6 +18,8 @@ if {[info exists ::env(XEN_FFA)] && $::env(XEN_FFA) == "y"} {
 }
 set cmd3 "xl console domu"
 set quiet 0
+set continue_on_fail 0
+set print_test_names 0
 set xtest_args ""
 if {[info exists ::env(RUST_ENABLE)] && $::env(RUST_ENABLE) == "y"} {
 	set rust_enable 1
