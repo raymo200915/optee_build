@@ -213,9 +213,15 @@ QEMU_MEM ?= 4096
 QEMU_CPU ?= rv64,zkr=on
 
 ifneq ($(filter y,$(CFG_CORE_CRYPTO_SHA256_ACCEL) \
-	$(CFG_CORE_CRYPTO_SHA512_ACCEL) $(CFG_CORE_CRYPTO_AES_ACCEL)),)
+	$(CFG_CORE_CRYPTO_SHA512_ACCEL) $(CFG_CORE_CRYPTO_AES_ACCEL) \
+	$(CFG_RISCV_TEST_SHA2_KAT) $(CFG_RISCV_TEST_AES_KAT)),)
+QEMU_CPU := $(QEMU_CPU),v=true,zvkng=true
+endif
+
+ifneq ($(filter y,$(CFG_CORE_CRYPTO_AES_ACCEL) \
+	$(CFG_RISCV_TEST_AES_KAT)),)
 # AES-XTS additionally uses Zvbb widening shifts for tweak generation.
-QEMU_CPU := $(QEMU_CPU),v=true,zvkng=true,zvbb=true
+QEMU_CPU := $(QEMU_CPU),zvbb=true
 endif
 
 QEMU_LOADER_ADDR ?= 0x80200000
